@@ -39,6 +39,7 @@ const Home = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [topSearches, setTopSearches] = useState(TopFavouriteMangas);
   const [error, setError] = useState(null);
+  const [isClient, setIsClient] = useState(false);
   const router = useRouter();
 
   // Debounce function memoized
@@ -63,13 +64,20 @@ const Home = () => {
     [debounce]
   );
 
+  // Set client flag and initialize scroll position
   useEffect(() => {
+    setIsClient(true);
+    // Immediately sync isVisible state with current scroll position
+    setIsVisible(window.scrollY <= 500);
+    
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, [handleScroll]);
 
   // Fetch TopManga list on mount
   useEffect(() => {
+    if (!isClient) return; // Only run on client side
+    
     const fetchTopMangaList = async () => {
       try {
         const cached = getFromStorage("topMangaList");
@@ -129,7 +137,7 @@ const Home = () => {
       }
     };
     fetchTopMangaList();
-  }, []);
+  }, [isClient]);
 
   const handleSearch = useCallback(
     (e) => {

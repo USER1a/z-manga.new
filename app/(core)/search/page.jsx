@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, memo} from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircleIcon, RouteOff } from "lucide-react";
 
 import SearchMangaCardWith2ViewMode from "../../Components/SearchPageComponents/SearchMangaCardWith2ViewMode"
@@ -33,11 +34,13 @@ const SearchPage = memo(() => {
   // Constants
   const ITEMS_PER_PAGE = 24;
 
+  // Get search params using Next.js hook
+  const searchParams = useSearchParams();
+
   // Initialize search from URL params
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    console.log(params)
-    const query = params.get("query") || "";
+    const query = searchParams.get("query") || "";
+    console.log("Search query:", query);
     setSearchQuery(query);
 
     if (query) {
@@ -46,7 +49,7 @@ const SearchPage = memo(() => {
       setIsLoading(false);
       setError("Please enter a search term");
     }
-  }, []);
+  }, [searchParams]);
 
   // Filter manga when filter state changes
   useEffect(() => {
