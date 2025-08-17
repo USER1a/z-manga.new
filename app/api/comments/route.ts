@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as cheerio from 'cheerio';
 import { NextRequest, NextResponse } from 'next/server';
-import puppeteer, { Browser } from 'puppeteer';
+import puppeteer, { Browser } from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -9,13 +10,10 @@ let browserPromise: Promise<Browser> | null = null;
 async function getBrowser() {
     if (!browserPromise) {
         browserPromise = puppeteer.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ],
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
             timeout: 60000,
         });
     }
