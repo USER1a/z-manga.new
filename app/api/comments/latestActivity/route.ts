@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import * as cheerio from 'cheerio';
-import { NextResponse } from 'next/server';
-import puppeteer, { Browser } from 'puppeteer';
+import { NextRequest, NextResponse } from 'next/server';
+import puppeteer, { Browser } from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 let browserPromise: Promise<Browser> | null = null;
 
@@ -9,13 +10,10 @@ let browserPromise: Promise<Browser> | null = null;
 async function getBrowser() {
     if (!browserPromise) {
         browserPromise = puppeteer.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-            ],
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
             timeout: 60000,
         });
     }
@@ -32,9 +30,27 @@ process.on('SIGINT', async () => {
     process.exit();
 });
 
-export async function GET() {
-    const forumUrl = 'https://forums.mangadex.org/whats-new/latest-activity';
-    const maxComments = 10;
+export async function GET(req: NextRequest) {
+    const { searchParams } = new URL(req.url);
+    const thread = searchParams.get('thread');
+    const repliesCount = parseInt(searchParams.get('repliesCount') || '0', 10);
+
+    if (!thread || isNaN(repliesCount)) {
+        return NextResponse.json(
+            {
+                data: [],
+                total: 0,
+                timestamp: new Date().toISOString(),
+                source: 'MangaDex Forums',
+                error: 'Missing or invalid thread or repliesCount parameters',
+            },
+            { status: 400 }
+        );
+    }
+    console.log(`page-${Math.max(1, Math.ceil(repliesCount / 20))}`);
+
+    const forumUrl = `https://forums.mangadex.org/threads/${thread}/page-${Math.max(1, Math.ceil(repliesCount / 20))}`;
+    const maxComments = 20;
     const maxRetries = 2;
 
     let browser;
@@ -86,7 +102,7 @@ export async function GET() {
                 throw new Error(`Failed to load page: ${response ? response.status() : 'No response'}`);
             }
 
-            await page.waitForSelector('.block-row.block-row--separated', { timeout: 5000 }).catch(() => {
+            await page.waitForSelector('article.message.message--post', { timeout: 5000 }).catch(() => {
                 console.warn('Selector not found, proceeding with available content');
             });
 
@@ -94,49 +110,50 @@ export async function GET() {
             const $ = cheerio.load(htmlContent);
             const comments = [];
 
-            const elements = $('.block-row.block-row--separated').toArray();
+            const elements = $('article.message.message--post').toArray();
             for (const element of elements) {
                 if (comments.length >= maxComments) break;
 
                 const $element = $(element);
 
-                const username = $element.find('.username').text().trim();
+                const username = $element.find('.message-name a.username').text().trim();
                 if (!username) continue;
 
-                let avatarUrl = $element.find('.avatar img').attr('src');
+                let avatarUrl = $element.find('.message-avatar img').attr('src');
                 if (avatarUrl && avatarUrl.startsWith('/')) {
                     avatarUrl = `https://forums.mangadex.org${avatarUrl}`;
                 }
 
-                const titleElement = $element.find('.contentRow-title a[href*="/threads/"]').text().trim();
-                const { mangaTitle, volumeNo, chapterNo, chapterTitle } = cleanMangaTitle(titleElement);
+                const userTitle = $element.find('.message-userBanner').first().text().trim() || 'User';
+                const joinedDate = $element.find('.message-userExtras .pairs--justified:contains("Joined") dd').text().trim() || 'Unknown';
+                const messageCount = $element.find('.message-userExtras .pairs--justified:contains("Messages") dd').text().trim() || '0';
 
-                const reactionType = $element.find('.reaction-text').text().trim() || 'Like';
-                const commentContent = $element.find('.contentRow-snippet').text().trim();
-                if (!commentContent && !titleElement) continue;
-
+                const postId: any = $element.attr('id')?.replace('js-post-', '') || `post_${comments.length + 1}`;
+                const timestamp = $element.find('time.u-dt').attr('datetime') || new Date().toISOString();
                 const timeAgo = $element.find('time.u-dt').text().trim() || 'A moment ago';
-                const threadUrl = $element.find('a[href*="/threads/"]').attr('href') || '#';
-                const repliedTO = $element.find('a[href*="/posts/"]').text();
-                const postUrl = $element.find('a[href*="/posts/"]').attr('href') || '#';
+                const postUrl = $element.find('.message-attribution-main a[href*="/post-"]').attr('href') || '#';
+                const fullPostUrl = postUrl.startsWith('/') ? `https://forums.mangadex.org${postUrl}` : postUrl;
 
-                const fullThreadUrl = threadUrl.startsWith('/') ? `https://forums.mangadex.org${threadUrl}` : threadUrl;
-                if (mangaTitle === "Unknown Manga Title") continue;
+                const commentContent = $element.find('.message-body .bbWrapper').text().trim();
+                if (!commentContent) continue;
+
+                const reactionType = $element.find('.reactionsBar .reaction-sprite').attr('alt') || 'Like';
+                const reactionUsers = $element.find('.reactionsBar-link bdi').text().trim() || 'None';
 
                 comments.push({
-                    id: `comment_${comments.length + 1}`,
+                    id: postId,
                     username,
                     avatarUrl: avatarUrl || `https://forums.mangadex.org/community/avatars/s/0/${Math.floor(Math.random() * 100)}.jpg?1673176662`,
-                    mangaTitle,
-                    volumeNo,
-                    chapterNo,
-                    chapterTitle,
-                    repliedTO,
-                    postUrl,
-                    reactionType,
+                    userTitle,
+                    joinedDate,
+                    messageCount,
                     commentContent,
+                    timestamp,
                     timeAgo,
-                    threadUrl: fullThreadUrl,
+                    postUrl: fullPostUrl,
+                    reactionType,
+                    reactionUsers,
+                    threadUrl: forumUrl,
                 });
             }
 
@@ -150,7 +167,7 @@ export async function GET() {
                 data: comments.slice(0, maxComments),
                 total: comments.length,
                 timestamp: new Date().toISOString(),
-                source: 'MangaDex Forums Latest Activity',
+                source: 'MangaDex Forums Thread Comments',
             });
         } catch (error: any) {
             attempt++;
@@ -163,7 +180,7 @@ export async function GET() {
                         data: [],
                         total: 0,
                         timestamp: new Date().toISOString(),
-                        source: 'MangaDex Forums Latest Activity',
+                        source: 'MangaDex Forums Thread Comments',
                         error: `Failed to scrape data after ${maxRetries} attempts: ${error.message}`,
                     },
                     { status: error.response?.status || 500 }
@@ -178,47 +195,9 @@ export async function GET() {
             data: [],
             total: 0,
             timestamp: new Date().toISOString(),
-            source: 'MangaDex Forums Latest Activity',
+            source: 'MangaDex Forums Thread Comments',
             error: 'Unexpected error: retries exhausted',
         },
         { status: 500 }
     );
-}
-
-// Helper function to clean and parse manga title
-function cleanMangaTitle(title: string) {
-    let mangaTitle = "Unknown Manga Title";
-    let volumeNo = "";
-    let chapterNo = "";
-    let chapterTitle = "";
-
-    if (!title || title.trim() === "") {
-        return { mangaTitle, volumeNo, chapterNo, chapterTitle };
-    }
-
-    // Handle titles with or without "Vol."
-    // Pattern 1: "Manga Title - Vol. X Ch. Y - Chapter Title"
-    // Pattern 2: "Manga Title - Ch. Y - Chapter Title"
-    const regexWithVol = /^(.*?)\s*-\s*Vol\.?\s*(\d+)?\s*Ch\.?\s*([\d.]+)\s*(?:-\s*(.*))?$/i;
-    const regexWithoutVol = /^(.*?)\s*-\s*Ch\.?\s*([\d.]+)\s*(?:-\s*(.*))?$/i;
-
-    let match = title.trim().match(regexWithVol);
-    if (match) {
-        mangaTitle = match[1]?.trim() || "Unknown Manga Title";
-        volumeNo = match[2] || "";
-        chapterNo = match[3] || "";
-        chapterTitle = match[4]?.trim() || "";
-    } else {
-        match = title.trim().match(regexWithoutVol);
-        if (match) {
-            mangaTitle = match[1]?.trim() || "Unknown Manga Title";
-            volumeNo = "";
-            chapterNo = match[2] || "";
-            chapterTitle = match[3]?.trim() || "";
-        } else {
-            mangaTitle = title.trim();
-        }
-    }
-
-    return { mangaTitle, volumeNo, chapterNo, chapterTitle };
 }
