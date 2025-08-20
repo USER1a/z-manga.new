@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "@tanstack/react-query": "^5.64.2",
     "@vitalets/google-translate-api": "^9.2.1",
     "axios": "^1.7.9",
@@ -20,6 +21,7 @@
     "lucide-react": "^0.509.0",
     "next": "^15.3.0",
     "puppeteer": "^24.9.0",
+    "puppeteer-core": "^24.17.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.2.0",
