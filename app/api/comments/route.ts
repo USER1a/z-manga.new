@@ -2,24 +2,37 @@
 import * as cheerio from 'cheerio';
 import { NextRequest, NextResponse } from 'next/server';
 import puppeteer, { Browser } from 'puppeteer';
+import chromium from '@sparticuz/chromium';
 
 let browserPromise: Promise<Browser> | null = null;
 
 // Initialize browser singleton
 async function getBrowser() {
     if (!browserPromise) {
-        browserPromise = puppeteer.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-web-security',
-                '--disable-features=VizDisplayCompositor',
-            ],
-            timeout: 60000,
-        });
+        // Check if we're in a serverless environment
+        const isServerless = process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL;
+        
+        if (isServerless) {
+            browserPromise = puppeteer.launch({
+                args: chromium.args,
+                defaultViewport: chromium.defaultViewport,
+                executablePath: await chromium.executablePath(),
+                headless: chromium.headless,
+                timeout: 60000,
+            });
+        } else {
+            // Local development - use regular puppeteer
+            browserPromise = puppeteer.launch({
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                ],
+                timeout: 60000,
+            });
+        }
     }
     return browserPromise;
 }
