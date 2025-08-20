@@ -15,6 +15,8 @@ async function getBrowser() {
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
+                '--disable-web-security',
+                '--disable-features=VizDisplayCompositor',
             ],
             timeout: 60000,
         });
